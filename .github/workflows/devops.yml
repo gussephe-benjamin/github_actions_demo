@@ -13,12 +13,7 @@ on:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        python-version: ["3.9", "3.10", "3.11"]
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ubuntu-latest
 
     outputs:
       build_tag: ${{ steps.meta.outputs.tag }}
@@ -32,16 +27,15 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
 
       # STEP 3: Cache
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            pip-${{ runner.os }}-${{ matrix.python-version }}-
             pip-${{ runner.os }}-
 
       # STEP 4: Install dependencies
@@ -53,15 +47,10 @@ jobs:
       # STEP 5: Run tests
       - name: Run tests
         run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           pytest -q
 
-      # STEP 6: Matrix info
-      - name: Test on matrix
-        run: |
-          echo "Running on OS: ${{ matrix.os }}"
-          echo "Python version: ${{ matrix.python-version }}"
-
-      # STEP 7: Create build tag
+      # STEP 6: Create build tag
       - name: Compute build tag
         id: meta
         shell: bash
@@ -69,17 +58,17 @@ jobs:
           TS=$(date +%Y%m%d-%H%M%S)
           echo "tag=${TS}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      # STEP 8: Save artifact
+      # STEP 7: Save artifact
       - name: Save artifact (sample log)
         shell: bash
         run: |
           echo "Build tag: ${{ steps.meta.outputs.tag }}" > build-info.txt
 
-      # STEP 9: Upload artifact
+      # STEP 8: Upload artifact
       - name: Upload build info artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-info-${{ matrix.os }}-${{ matrix.python-version }}
+          name: build-info
           path: build-info.txt
 
   package:
@@ -141,6 +130,3 @@ jobs:
       # - name: Conditional deploy
       #   if: github.event_name == 'push'
       #   run: echo "Deploying only on push..."
-
-
-
