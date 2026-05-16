@@ -1,107 +1,132 @@
-name: CI/CD Pipeline Avanzado
-run-name: "Pipeline ejecutado por ${{ github.actor }} en ${{ github.ref_name }}"
+name: CI básico Python + Bash
+run-name: "CI disparado por ${{ github.actor }}"
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:  # Permite ejecución manual
+    branches:
+      - main
 
-env:
-  PYTHON_VERSION: "3.11"
+  pull_request:
+    types:
+      - opened
+      - synchronize
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+
     outputs:
       build_tag: ${{ steps.meta.outputs.tag }}
-    
+
     steps:
+      # STEP 1: Checkout
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Setup Python ${{ matrix.python-version }}
+
+      # STEP 2: Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      
+          python-version: "3.11"
+
+      # STEP 3: Cache
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            pip-${{ runner.os }}-${{ matrix.python-version }}-
             pip-${{ runner.os }}-
-      
-      - name: Install dependencies
+
+      # STEP 4: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest-cov
-      
-      - name: Run tests with coverage
+
+      # STEP 5: Run tests
+      - name: Run tests
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-          pytest --cov=hello --cov-report=xml --cov-report=html
-      
-      - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report-py${{ matrix.python-version }}
-          path: htmlcov/
-      
+          pytest -q
+
+      # STEP 6: Create build tag
       - name: Compute build tag
         id: meta
+        shell: bash
         run: |
           TS=$(date +%Y%m%d-%H%M%S)
           echo "tag=${TS}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      # STEP 7: Save artifact
+      - name: Save artifact (sample log)
+        shell: bash
+        run: |
+          echo "Build tag: ${{ steps.meta.outputs.tag }}" > build-info.txt
+
+      # STEP 8: Upload artifact
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      
-      - name: Install linting tools
-        run: pip install flake8 black isort
-      
-      - name: Run flake8
-        run: flake8 hello.py tests/
-      
-      - name: Run black check
-        run: black --check hello.py tests/
-      
-      - name: Run isort check
-        run: isort --check-only hello.py tests/
+          name: build-info
+          path: build-info.txt
 
   package:
-    needs: [test, lint]
+    needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+
     steps:
+      # STEP 1: Checkout
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Create package
+
+      # STEP 2: Read previous job output
+      - name: Read tag from previous job
+        run: echo "TAG = ${{ needs.test.outputs.build_tag }}"
+        env:
+          TAG: ${{ needs.test.outputs.build_tag }}
+
+      # STEP 3: Create zip package
+      - name: Create zip
         run: |
           mkdir -p dist
           cp hello.py dist/
-          zip -r "app-${{ needs.test.outputs.build_tag }}.zip" dist/.
+          zip -r "app-${{ needs.test.outputs.build_tag }}.zip" dist
           mv "app-${{ needs.test.outputs.build_tag }}.zip" dist/
-      
+
+      # STEP 4: Upload package artifact
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: app-package
+          name: app-zip
           path: dist/*.zip
-          retention-days: 30
+
+  docs:
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - package
+
+    steps:
+      - name: Echo info (Bash)
+        run: |
+          echo "Repo: $GITHUB_REPOSITORY"
+          echo "Evento: $GITHUB_EVENT_NAME"
+          echo "Runner: $RUNNER_OS"
+
+  deploy:
+    needs: docs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "Deploying..."
+          echo "Branch actual: $GITHUB_REF"
+          echo "Workflow ejecutado correctamente"
+
+      # Solo para pushes reales y no PRs
+      # - name: Conditional deploy
+      #   if: github.event_name == 'push'
+      #   run: echo "Deploying only on push..."
